@@ -1,7 +1,12 @@
 {
   "expo": {
+<<<<<<< HEAD
     "name": "quanto-ganhei-app",
     "slug": "snack-db1ceba0-c2ca-4e25-a176-a365df9a96ae",
+=======
+    "name": "github.com/hgmalves/quanto-ganhei-app",
+    "slug": "snack-893f6a4d-8000-4f7c-b0b6-fd7fc92a31f1",
+>>>>>>> 18a3667 (Ajustando códigos estã em passos finais para teste)
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -23,6 +28,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+<<<<<<< HEAD
     }
+=======
+    },
+    "description": "github.com/Hgmalves/Quanto-Ganhei-App @ Mar 22, 2025"
+>>>>>>> 18a3667 (Ajustando códigos estã em passos finais para teste)
   }
 }
