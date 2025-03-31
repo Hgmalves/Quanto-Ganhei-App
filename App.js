@@ -1,24 +1,16 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-<<<<<<< HEAD
-import HomeScreen from './src/screens/Home';
-=======
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import HomeScreen from './src/screens/HomeScreen';
 import CalendarioScreen from './src/screens/CalendarioScreen';
 import CombustivelScreen from './src/screens/CombustivelScreen';
->>>>>>> 18a3667 (Ajustando códigos estã em passos finais para teste)
 
 const Stack = createStackNavigator();
 
 const App = () => {
   return (
     <NavigationContainer>
-<<<<<<< HEAD
-      <Stack.Navigator>
-        <Stack.Screen name="Home" component={HomeScreen} options={{ title: 'Quanto Ganhei App' }} />
-=======
       <Stack.Navigator
         initialRouteName="Home"
         screenOptions={{
@@ -56,7 +48,6 @@ const App = () => {
           component={CombustivelScreen}
           options={{ title: 'CÁLCULO DE COMBUSTÍVEL' }}
         />
->>>>>>> 18a3667 (Ajustando códigos estã em passos finais para teste)
       </Stack.Navigator>
     </NavigationContainer>
   );
