@@ -1,340 +1,720 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, Animated } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  StyleSheet, 
+  ScrollView,
+  Modal,
+  Alert,
+  StatusBar
+} from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
-import Icon from 'react-native-vector-icons/MaterialIcons'; // Para ícones
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Clipboard from 'expo-clipboard'; // Ajustado para usar expo-clipboard
 
-// Configuração do idioma para português
+// CONSTANTES - Estilo CNH Digital
+const ANO_ATUAL = 2025;
+const CONSTANTS = {
+  VALOR_DIA_TRABALHADO: 220,
+  CORES: {
+    primaria: '#1565C0',
+    secundaria: '#2196F3',
+    texto: '#FFF',
+    fundo: '#F5F5F5',
+    feriado: '#FF9800',
+    desativado: '#BDBDBD',
+    verde: '#4CAF50',
+    vermelho: '#F44336'
+  },
+  FERIADOS: {
+    '2025-01-01': 'Confraternização Universal',
+    '2025-04-21': 'Tiradentes',
+    '2025-05-01': 'Dia do Trabalho',
+    '2025-09-07': 'Independência do Brasil',
+    '2025-10-12': 'Nossa Senhora Aparecida',
+    '2025-11-02': 'Finados',
+    '2025-11-15': 'Proclamação da República',
+    '2025-12-25': 'Natal',
+    '2025-03-04': 'Carnaval',
+    '2025-04-18': 'Sexta-Feira Santa',
+    '2025-04-20': 'Páscoa',
+    '2025-06-19': 'Corpus Christi'
+  }
+};
+
 LocaleConfig.locales['pt'] = {
-  monthNames: [
-    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-  ],
-  monthNamesShort: [
-    'Jan.', 'Fev.', 'Mar.', 'Abr.', 'Mai.', 'Jun.',
-    'Jul.', 'Ago.', 'Set.', 'Out.', 'Nov.', 'Dez.'
-  ],
+  monthNames: ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
+  monthNamesShort: ['Jan.', 'Fev.', 'Mar.', 'Abr.', 'Mai.', 'Jun.', 'Jul.', 'Ago.', 'Set.', 'Out.', 'Nov.', 'Dez.'],
   dayNames: ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'],
   dayNamesShort: ['Dom.', 'Seg.', 'Ter.', 'Qua.', 'Qui.', 'Sex.', 'Sáb.'],
   today: 'Hoje'
 };
 LocaleConfig.defaultLocale = 'pt';
 
-const Calendario = () => {
-  // Estado para armazenar os dias marcados
-  const [datasMarcadas, setDatasMarcadas] = useState({});
-  // Estado para armazenar o salário total
-  const [salarioTotal, setSalarioTotal] = useState(0);
-  // Estado para controlar a visibilidade do modal de explicação
-  const [modalVisivel, setModalVisivel] = useState(true);
-  // Animação para o ícone de ajuda
-  const animacao = useState(new Animated.Value(0))[0];
+const CalendarioPagamentos = ({ navigation }) => {
+  const [state, setState] = useState({
+    datasMarcadas: {},
+    salarioTotal: 0,
+    modalVisivel: false,
+    modalAjudaVisivel: false,
+    anoDispositivoInvalido: false
+  });
 
-  // Função para animar o ícone de ajuda (memoizada com useCallback)
-  const iniciarAnimacao = useCallback(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(animacao, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(animacao, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  }, [animacao]);
+  const hoje = new Date();
+  const mesAtual = hoje.getMonth();
+  const diasNoMesAtual = new Date(ANO_ATUAL, mesAtual + 1, 0).getDate();
 
-  // Inicia a animação quando o componente é montado
   useEffect(() => {
-    iniciarAnimacao();
-  }, [iniciarAnimacao]);
+    const anoDispositivo = new Date().getFullYear();
+    if (anoDispositivo !== ANO_ATUAL) {
+      setState(prev => ({ ...prev, anoDispositivoInvalido: true }));
+      Alert.alert(
+        'Atenção',
+        `Este calendário está configurado para ${ANO_ATUAL}. Para funcionar corretamente, ajuste o ano do seu dispositivo para ${ANO_ATUAL}.`,
+        [{ text: 'OK' }]
+      );
+    }
+  }, []);
 
-  // Função para lidar com o clique em um dia
-  const aoPressionarDia = (dia) => {
-    const novasDatasMarcadas = { ...datasMarcadas };
-    const corAnterior = novasDatasMarcadas[dia.dateString]?.selectedColor;
-    const novaCor = corAnterior === 'green' ? 'red' : 'green';
-    const valor = novaCor === 'green' ? 220 : -220;
+  useEffect(() => {
+    const carregarDados = async () => {
+      try {
+        const [dados, salario] = await Promise.all([
+          AsyncStorage.getItem('@datasMarcadas'),
+          AsyncStorage.getItem('@salarioTotal')
+        ]);
+        
+        if (dados || salario) {
+          setState(prev => ({
+            ...prev,
+            datasMarcadas: dados ? JSON.parse(dados) : {},
+            salarioTotal: salario ? parseFloat(salario) : 0
+          }));
+        }
+      } catch (error) {
+        console.error('Erro ao carregar dados:', error);
+        Alert.alert('Erro', 'Ocorreu um erro ao carregar seus dados salvos.');
+      }
+    };
+    
+    carregarDados();
+  }, []);
 
-    // Atualiza o estado dos dias marcados
-    novasDatasMarcadas[dia.dateString] = { selected: true, selectedColor: novaCor };
-
-    // Atualiza o salário total
-    setDatasMarcadas(novasDatasMarcadas);
-    setSalarioTotal((prev) => prev + valor);
-  };
-
-  // Função para marcar todos os dias como verde
-  const marcarTodosVerde = () => {
-    const todasDatas = {};
-    let total = 0;
-    const diasNoMes = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-
-    for (let i = 1; i <= diasNoMes; i++) {
-      const data = new Date(new Date().getFullYear(), new Date().getMonth(), i)
-        .toISOString()
-        .split('T')[0];
-      todasDatas[data] = { selected: true, selectedColor: 'green' };
-      total += 220;
+  const toggleDia = useCallback((dateString) => {
+    if (state.anoDispositivoInvalido) {
+      Alert.alert('Ajuste necessário', `Altere o ano do dispositivo para ${ANO_ATUAL} para usar o calendário.`);
+      return;
     }
 
-    setDatasMarcadas(todasDatas);
-    setSalarioTotal(total);
-  };
+    setState(prev => {
+      const current = prev.datasMarcadas[dateString];
+      const isFeriado = CONSTANTS.FERIADOS[dateString];
+      
+      const newColor = current?.selectedColor === CONSTANTS.CORES.verde 
+        ? CONSTANTS.CORES.vermelho 
+        : CONSTANTS.CORES.verde;
 
-  // Função para marcar todos os dias como vermelho
-  const marcarTodosVermelho = () => {
-    const todasDatas = {};
-    const diasNoMes = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+      const valor = newColor === CONSTANTS.CORES.vermelho 
+        ? -CONSTANTS.VALOR_DIA_TRABALHADO 
+        : CONSTANTS.VALOR_DIA_TRABALHADO;
 
-    for (let i = 1; i <= diasNoMes; i++) {
-      const data = new Date(new Date().getFullYear(), new Date().getMonth(), i)
-        .toISOString()
-        .split('T')[0];
-      todasDatas[data] = { selected: true, selectedColor: 'red' };
+      const newDatasMarcadas = {
+        ...prev.datasMarcadas,
+        [dateString]: {
+          selected: true,
+          selectedColor: newColor,
+          ...(isFeriado && { 
+            dotColor: CONSTANTS.CORES.texto,
+            customStyles: {
+              container: {
+                backgroundColor: newColor === CONSTANTS.CORES.verde 
+                  ? CONSTANTS.CORES.feriado 
+                  : newColor,
+                borderRadius: 16,
+              },
+              text: {
+                color: CONSTANTS.CORES.texto,
+                fontWeight: 'bold'
+              }
+            }
+          })
+        }
+      };
+
+      try {
+        AsyncStorage.multiSet([
+          ['@datasMarcadas', JSON.stringify(newDatasMarcadas)],
+          ['@salarioTotal', (prev.salarioTotal + valor).toString()]
+        ]);
+      } catch (error) {
+        console.error('Erro ao salvar dados:', error);
+      }
+
+      return {
+        ...prev,
+        datasMarcadas: newDatasMarcadas,
+        salarioTotal: prev.salarioTotal + valor
+      };
+    });
+  }, [state.anoDispositivoInvalido]);
+
+  const marcarTodos = useCallback((cor) => {
+    if (state.anoDispositivoInvalido) {
+      Alert.alert('Ajuste necessário', `Altere o ano do dispositivo para ${ANO_ATUAL} para usar esta função.`);
+      return;
     }
 
-    setDatasMarcadas(todasDatas);
-    setSalarioTotal(0);
+    const datas = {};
+    let total = cor === CONSTANTS.CORES.verde ? 0 : 0;
+
+    for (let i = 1; i <= diasNoMesAtual; i++) {
+      const date = new Date(ANO_ATUAL, mesAtual, i);
+      const dateString = date.toISOString().split('T')[0];
+      const isFeriado = CONSTANTS.FERIADOS[dateString];
+      
+      datas[dateString] = {
+        selected: true,
+        selectedColor: cor,
+        ...(isFeriado && { 
+          dotColor: CONSTANTS.CORES.texto,
+          customStyles: {
+            container: {
+              backgroundColor: cor === CONSTANTS.CORES.verde 
+                ? CONSTANTS.CORES.feriado 
+                : cor,
+              borderRadius: 16,
+            },
+            text: {
+              color: CONSTANTS.CORES.texto,
+              fontWeight: 'bold'
+            }
+          }
+        })
+      };
+      
+      if (cor === CONSTANTS.CORES.verde) {
+        total += CONSTANTS.VALOR_DIA_TRABALHADO;
+      }
+    }
+
+    try {
+      AsyncStorage.multiSet([
+        ['@datasMarcadas', JSON.stringify(datas)],
+        ['@salarioTotal', total.toString()]
+      ]);
+    } catch (error) {
+      console.error('Erro ao salvar marcações:', error);
+      Alert.alert('Erro', 'Ocorreu um erro ao salvar suas marcações.');
+    }
+
+    setState(prev => ({
+      ...prev,
+      datasMarcadas: datas,
+      salarioTotal: cor === CONSTANTS.CORES.verde ? total : 0
+    }));
+  }, [diasNoMesAtual, mesAtual, state.anoDispositivoInvalido]);
+
+  const limparMarcacoes = useCallback(() => {
+    if (state.anoDispositivoInvalido) {
+      Alert.alert('Ajuste necessário', `Altere o ano do dispositivo para ${ANO_ATUAL} para usar esta função.`);
+      return;
+    }
+
+    Alert.alert(
+      'Confirmação',
+      'Tem certeza que deseja limpar todas as marcações?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Limpar',
+          onPress: async () => {
+            try {
+              await AsyncStorage.multiRemove(['@datasMarcadas', '@salarioTotal']);
+              setState(prev => ({
+                ...prev,
+                datasMarcadas: {},
+                salarioTotal: 0
+              }));
+            } catch (error) {
+              console.error('Erro ao limpar marcações:', error);
+              Alert.alert('Erro', 'Ocorreu um erro ao limpar suas marcações.');
+            }
+          }
+        }
+      ]
+    );
+  }, [state.anoDispositivoInvalido]);
+
+  const marcacoesCalendario = useMemo(() => {
+    const marcacoes = { ...state.datasMarcadas };
+    
+    Object.keys(CONSTANTS.FERIADOS).forEach(data => {
+      if (!marcacoes[data]) {
+        marcacoes[data] = {
+          selected: false,
+          marked: true,
+          dotColor: CONSTANTS.CORES.feriado,
+          customStyles: {
+            text: {
+              color: CONSTANTS.CORES.feriado,
+              fontWeight: 'bold'
+            }
+          }
+        };
+      }
+    });
+    
+    return marcacoes;
+  }, [state.datasMarcadas]);
+
+  const copiarSalario = async () => {
+    try {
+      await Clipboard.setStringAsync(`R$ ${state.salarioTotal.toFixed(2)}`);
+      Alert.alert('Copiado!', 'Valor do salário copiado para a área de transferência.');
+    } catch (error) {
+      console.error('Erro ao copiar para a área de transferência:', error);
+      Alert.alert('Erro', 'Não foi possível copiar o valor.');
+    }
   };
 
-  // Função para limpar todas as marcações
-  const limparMarcacoes = () => {
-    setDatasMarcadas({});
-    setSalarioTotal(0);
-  };
+  const BotaoCNH = ({ icon, label, onPress, danger }) => (
+    <TouchableOpacity 
+      style={[styles.botaoCNH, danger && { borderColor: CONSTANTS.CORES.vermelho }]}
+      onPress={onPress}
+    >
+      <View style={styles.botaoContent}>
+        <Icon 
+          name={icon} 
+          size={20} 
+          color={danger ? CONSTANTS.CORES.vermelho : CONSTANTS.CORES.primaria} 
+        />
+        <Text style={[styles.botaoTexto, danger && { color: CONSTANTS.CORES.vermelho }]}>
+          {label}
+        </Text>
+      </View>
+      <Icon 
+        name="chevron-right" 
+        size={20} 
+        color={danger ? CONSTANTS.CORES.vermelho : CONSTANTS.CORES.primaria} 
+      />
+    </TouchableOpacity>
+  );
 
   return (
     <View style={styles.container}>
-      {/* Modal de Explicação */}
-      <Modal
-        visible={modalVisivel}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setModalVisivel(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitulo}>Como Usar o Calendário de Pagamentos</Text>
-            <Text style={styles.modalTexto}>
-              - Toque em um dia para marcá-lo como <Text style={{ color: '#4CAF50' }}>verde</Text> (trabalhado) ou <Text style={{ color: '#F44336' }}>vermelho</Text> (não trabalhado).
-              {'\n'}- Cada dia <Text style={{ color: '#4CAF50' }}>verde</Text> adiciona R$ 220 ao seu salário.
-              {'\n'}- Use os botões abaixo para marcar todos os dias de uma vez ou limpar as marcações.
-            </Text>
-            <TouchableOpacity style={styles.modalBotao} onPress={() => setModalVisivel(false)}>
-              <Text style={styles.modalBotaoTexto}>Entendi!</Text>
+      <StatusBar barStyle="dark-content" backgroundColor={CONSTANTS.CORES.texto} />
+      
+      <View style={styles.header}>
+        <Icon name="calendar-today" size={32} color={CONSTANTS.CORES.primaria} />
+        <Text style={styles.titulo}>Calendário de Pagamentos</Text>
+        <Text style={styles.subtitulo}>Ano {ANO_ATUAL}</Text>
+        <TouchableOpacity 
+          style={styles.ajudaButton}
+          onPress={() => setState(prev => ({ ...prev, modalAjudaVisivel: true }))}
+        >
+          <Icon name="help" size={24} color={CONSTANTS.CORES.primaria} />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.resumoContainer}>
+          <Text style={styles.resumoTitulo}>Salário Total</Text>
+          <View style={styles.salarioRow}>
+            <Text style={styles.salarioTotal}>R$ {state.salarioTotal.toFixed(2)}</Text>
+            <TouchableOpacity onPress={copiarSalario}>
+              <Icon name="content-copy" size={20} color={CONSTANTS.CORES.primaria} />
             </TouchableOpacity>
           </View>
+          <Text style={styles.resumoLegenda}>
+            {Object.values(state.datasMarcadas).filter(d => d.selectedColor === CONSTANTS.CORES.verde).length} dias trabalhados
+          </Text>
         </View>
-      </Modal>
 
-      {/* Título */}
-      <Text style={styles.titulo}>Controle de Pagamentos</Text>
+        <View style={styles.acoesContainer}>
+          <TouchableOpacity 
+            style={styles.acaoRapida}
+            onPress={() => marcarTodos(CONSTANTS.CORES.verde)}
+          >
+            <Icon name="check-circle" size={24} color={CONSTANTS.CORES.verde} />
+            <Text style={styles.acaoTexto}>Marcar Todos</Text>
+          </TouchableOpacity>
 
-      {/* Legenda das cores */}
-      <View style={styles.legenda}>
-        <View style={styles.legendaItem}>
-          <View style={[styles.corLegenda, { backgroundColor: '#4CAF50' }]} />
-          <Text style={styles.textoLegenda}>Dia trabalhado (R$ 220)</Text>
+          <TouchableOpacity 
+            style={styles.acaoRapida}
+            onPress={() => marcarTodos(CONSTANTS.CORES.vermelho)}
+          >
+            <Icon name="cancel" size={24} color={CONSTANTS.CORES.vermelho} />
+            <Text style={styles.acaoTexto}>Desmarcar Todos</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.acaoRapida}
+            onPress={limparMarcacoes}
+          >
+            <Icon name="delete" size={24} color={CONSTANTS.CORES.desativado} />
+            <Text style={styles.acaoTexto}>Limpar Tudo</Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.legendaItem}>
-          <View style={[styles.corLegenda, { backgroundColor: '#F44336' }]} />
-          <Text style={styles.textoLegenda}>Dia não trabalhado (R$ 0)</Text>
+
+        <View style={styles.calendarioContainer}>
+          <Calendar
+            current={`${ANO_ATUAL}-${String(mesAtual + 1).padStart(2, '0')}-01`}
+            minDate={`${ANO_ATUAL}-01-01`}
+            maxDate={`${ANO_ATUAL}-12-31`}
+            onDayPress={({ dateString }) => toggleDia(dateString)}
+            markedDates={marcacoesCalendario}
+            theme={{
+              calendarBackground: CONSTANTS.CORES.texto,
+              selectedDayBackgroundColor: CONSTANTS.CORES.verde,
+              selectedDayTextColor: CONSTANTS.CORES.texto,
+              todayTextColor: CONSTANTS.CORES.primaria,
+              arrowColor: CONSTANTS.CORES.primaria,
+              monthTextColor: CONSTANTS.CORES.primaria,
+              textMonthFontWeight: 'bold',
+              textDayFontSize: 16,
+              textSectionTitleColor: CONSTANTS.CORES.primaria,
+              dayTextColor: '#333',
+              textDisabledColor: CONSTANTS.CORES.desativado,
+              'stylesheet.calendar.header': {
+                week: {
+                  marginTop: 5,
+                  flexDirection: 'row',
+                  justifyContent: 'space-between'
+                }
+              }
+            }}
+            markingType="custom"
+          />
         </View>
-      </View>
 
-      {/* Botões de ação */}
-      <View style={styles.botoesContainer}>
-        <TouchableOpacity style={[styles.botao, styles.botaoVerde]} onPress={marcarTodosVerde}>
-          <Icon name="check-circle" size={20} color="#FFF" />
-          <Text style={styles.textoBotao}>Marcar Todos como Verde</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.botao, styles.botaoVermelho]} onPress={marcarTodosVermelho}>
-          <Icon name="cancel" size={20} color="#FFF" />
-          <Text style={styles.textoBotao}>Marcar Todos como Vermelho</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.botao, styles.botaoLimpar]} onPress={limparMarcacoes}>
-          <Icon name="delete" size={20} color="#FFF" />
-          <Text style={styles.textoBotao}>Limpar Marcações</Text>
-        </TouchableOpacity>
-      </View>
+        <View style={styles.legendaContainer}>
+          <View style={styles.legendaItem}>
+            <View style={[styles.legendaCor, { backgroundColor: CONSTANTS.CORES.verde }]} />
+            <Text style={styles.legendaTexto}>Dia Trabalhado</Text>
+          </View>
+          <View style={styles.legendaItem}>
+            <View style={[styles.legendaCor, { backgroundColor: CONSTANTS.CORES.vermelho }]} />
+            <Text style={styles.legendaTexto}>Dia Não Trabalhado</Text>
+          </View>
+          <View style={styles.legendaItem}>
+            <View style={[styles.legendaCor, { backgroundColor: CONSTANTS.CORES.feriado }]} />
+            <Text style={styles.legendaTexto}>Feriado</Text>
+          </View>
+        </View>
 
-      {/* Calendário */}
-      <View style={styles.calendarioContainer}>
-        <Calendar
-          onDayPress={aoPressionarDia}
-          markedDates={datasMarcadas}
-          theme={{
-            calendarBackground: '#FFFFFF',
-            selectedDayBackgroundColor: '#4CAF50',
-            selectedDayTextColor: '#FFFFFF',
-            todayTextColor: '#4CAF50',
-            arrowColor: '#4CAF50',
-            monthTextColor: '#4CAF50',
-            textMonthFontWeight: 'bold',
-            textDayFontSize: 16,
-          }}
+    
+
+        <BotaoCNH
+          icon="event"
+          label="Ver Feriados Nacionais"
+          onPress={() => setState(prev => ({ ...prev, modalVisivel: true }))}
         />
-      </View>
 
-      {/* Salário total */}
-      <View style={styles.salarioContainer}>
-        <Text style={styles.textoSalario}>Salário Total: R$ {salarioTotal.toFixed(2)}</Text>
-      </View>
+        <Modal
+          visible={state.modalVisivel}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setState(prev => ({ ...prev, modalVisivel: false }))}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitulo}>Feriados Nacionais {ANO_ATUAL}</Text>
+              <ScrollView style={styles.modalScroll}>
+                {Object.entries(CONSTANTS.FERIADOS)
+                  .sort((a, b) => new Date(a[0]) - new Date(b[0]))
+                  .map(([data, nome]) => (
+                    <View key={data} style={styles.feriadoItem}>
+                      <Text style={styles.feriadoData}>
+                        {data.split('-').reverse().join('/')}
+                      </Text>
+                      <Text style={styles.feriadoNome}>{nome}</Text>
+                    </View>
+                  ))}
+              </ScrollView>
+              <TouchableOpacity
+                style={styles.modalBotao}
+                onPress={() => setState(prev => ({ ...prev, modalVisivel: false }))}
+              >
+                <Text style={styles.modalBotaoTexto}>Fechar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
-      {/* Animação de Ajuda */}
-      <Animated.View
-        style={[
-          styles.animacaoContainer,
-          {
-            transform: [
-              {
-                translateY: animacao.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 10],
-                }),
-              },
-            ],
-          },
-        ]}
-      >
-        <Icon name="help" size={30} color="#4CAF50" />
-      </Animated.View>
+        <Modal
+          visible={state.modalAjudaVisivel}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setState(prev => ({ ...prev, modalAjudaVisivel: false }))}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitulo}>Como Usar o Calendário</Text>
+              <ScrollView style={styles.modalScroll}>
+                <View style={styles.instrucaoItem}>
+                  <Icon name="touch-app" size={24} color={CONSTANTS.CORES.primaria} />
+                  <Text style={styles.instrucaoTexto}>
+                    <Text style={{fontWeight: 'bold'}}>Marcar dia:</Text> Toque em um dia para marcar como trabalhado (verde) ou não trabalhado (vermelho).
+                  </Text>
+                </View>
+                
+                <View style={styles.instrucaoItem}>
+                  <Icon name="attach-money" size={24} color={CONSTANTS.CORES.primaria} />
+                  <Text style={styles.instrucaoTexto}>
+                    <Text style={{fontWeight: 'bold'}}>Salário:</Text> Cada dia marcado como trabalhado adiciona R$ {CONSTANTS.VALOR_DIA_TRABALHADO.toFixed(2)} ao salário total.
+                  </Text>
+                </View>
+                
+                <View style={styles.instrucaoItem}>
+                  <Icon name="check-circle" size={24} color={CONSTANTS.CORES.verde} />
+                  <Text style={styles.instrucaoTexto}>
+                    <Text style={{fontWeight: 'bold'}}>Marcar Todos:</Text> Marca todos os dias do mês atual como trabalhados.
+                  </Text>
+                </View>
+                
+                <View style={styles.instrucaoItem}>
+                  <Icon name="cancel" size={24} color={CONSTANTS.CORES.vermelho} />
+                  <Text style={styles.instrucaoTexto}>
+                    <Text style={{fontWeight: 'bold'}}>Desmarcar Todos:</Text> Marca todos os dias do mês atual como não trabalhados.
+                  </Text>
+                </View>
+                
+                <View style={styles.instrucaoItem}>
+                  <Icon name="delete" size={24} color={CONSTANTS.CORES.desativado} />
+                  <Text style={styles.instrucaoTexto}>
+                    <Text style={{fontWeight: 'bold'}}>Limpar Tudo:</Text> Remove todas as marcações do calendário.
+                  </Text>
+                </View>
+                
+                <View style={styles.instrucaoItem}>
+                  <Icon name="event" size={24} color={CONSTANTS.CORES.feriado} />
+                  <Text style={styles.instrucaoTexto}>
+                    <Text style={{fontWeight: 'bold'}}>Feriados:</Text> Dias em laranja são feriados nacionais. Toque em "Ver Feriados Nacionais" para ver a lista completa.
+                  </Text>
+                </View>
+                
+                <View style={styles.instrucaoItem}>
+                  <Icon name="directions-car" size={24} color={CONSTANTS.CORES.primaria} />
+                  <Text style={styles.instrucaoTexto}>
+                    <Text style={{fontWeight: 'bold'}}>Calculadora de Viagem:</Text> Use seu salário calculado para avaliar custos de viagem.
+                  </Text>
+                </View>
+                
+                <View style={styles.instrucaoItem}>
+                  <Icon name="save" size={24} color={CONSTANTS.CORES.primaria} />
+                  <Text style={styles.instrucaoTexto}>
+                    <Text style={{fontWeight: 'bold'}}>Salvamento automático:</Text> Todas as marcações são salvas automaticamente no seu dispositivo.
+                  </Text>
+                </View>
+              </ScrollView>
+              <TouchableOpacity
+                style={styles.modalBotao}
+                onPress={() => setState(prev => ({ ...prev, modalAjudaVisivel: false }))}
+              >
+                <Text style={styles.modalBotaoTexto}>Entendi</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </ScrollView>
     </View>
   );
 };
 
-// Estilos do componente
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: CONSTANTS.CORES.fundo,
   },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  scrollContent: {
+    paddingBottom: 30,
+  },
+  header: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  modalContent: {
-    backgroundColor: '#FFF',
     padding: 20,
-    borderRadius: 10,
-    width: '80%',
+    backgroundColor: CONSTANTS.CORES.texto,
+    borderBottomWidth: 1,
+    borderBottomColor: CONSTANTS.CORES.desativado,
+    elevation: 2,
+    position: 'relative',
   },
-  modalTitulo: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#4CAF50',
-    marginBottom: 10,
-  },
-  modalTexto: {
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 20,
-  },
-  modalBotao: {
-    backgroundColor: '#4CAF50',
-    padding: 10,
-    borderRadius: 5,
-    alignItems: 'center',
-  },
-  modalBotaoTexto: {
-    color: '#FFF',
-    fontWeight: 'bold',
+  ajudaButton: {
+    position: 'absolute',
+    top: 15,
+    right: 15,
+    padding: 8,
   },
   titulo: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#4CAF50',
-    textAlign: 'center',
-    marginBottom: 20,
+    color: CONSTANTS.CORES.primaria,
+    marginTop: 10,
   },
-  legenda: {
+  subtitulo: {
+    color: CONSTANTS.CORES.desativado,
+    fontSize: 14,
+  },
+  resumoContainer: {
+    backgroundColor: CONSTANTS.CORES.texto,
+    margin: 15,
+    borderRadius: 10,
+    padding: 20,
+    elevation: 3,
+    alignItems: 'center',
+  },
+  salarioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  resumoTitulo: {
+    color: CONSTANTS.CORES.primaria,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  salarioTotal: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: CONSTANTS.CORES.primaria,
+    marginRight: 10,
+  },
+  resumoLegenda: {
+    color: CONSTANTS.CORES.desativado,
+    fontSize: 14,
+  },
+  acoesContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 20,
+    marginHorizontal: 15,
+    marginBottom: 15,
+  },
+  acaoRapida: {
+    alignItems: 'center',
+    padding: 10,
+  },
+  acaoTexto: {
+    marginTop: 5,
+    fontSize: 12,
+    color: '#333',
+  },
+  calendarioContainer: {
+    marginHorizontal: 15,
+    marginBottom: 15,
+    borderRadius: 10,
+    overflow: 'hidden',
+    elevation: 3,
+  },
+  legendaContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    padding: 10,
+    backgroundColor: CONSTANTS.CORES.texto,
+    marginHorizontal: 15,
+    marginBottom: 15,
+    borderRadius: 8,
+    elevation: 2,
   },
   legendaItem: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  corLegenda: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    marginRight: 8,
+  legendaCor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 5,
   },
-  textoLegenda: {
-    fontSize: 14,
+  legendaTexto: {
+    fontSize: 12,
     color: '#333',
   },
-  botoesContainer: {
-    marginBottom: 20,
+  botaoCNH: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+    padding: 15,
+    borderRadius: 8,
+    marginHorizontal: 15,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: CONSTANTS.CORES.desativado,
   },
-  botao: {
+  botaoContent: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  botaoTexto: {
+    color: CONSTANTS.CORES.primaria,
+    marginLeft: 10,
+    fontWeight: '500',
+  },
+  modalContainer: {
+    flex: 1,
     justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 10,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  botaoVerde: {
-    backgroundColor: '#4CAF50',
-  },
-  botaoVermelho: {
-    backgroundColor: '#F44336',
-  },
-  botaoLimpar: {
-    backgroundColor: '#607D8B',
-  },
-  textoBotao: {
-    color: '#FFF',
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  calendarioContainer: {
-    backgroundColor: '#FFF',
+  modalContent: {
+    backgroundColor: CONSTANTS.CORES.texto,
+    width: '90%',
+    maxHeight: '80%',
     borderRadius: 10,
-    padding: 10,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    overflow: 'hidden',
   },
-  salarioContainer: {
-    marginTop: 20,
-    padding: 16,
-    backgroundColor: '#4CAF50',
-    borderRadius: 10,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-  textoSalario: {
+  modalTitulo: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFF',
+    color: CONSTANTS.CORES.primaria,
+    padding: 20,
     textAlign: 'center',
+    backgroundColor: 'rgba(21, 101, 192, 0.1)',
   },
-  animacaoContainer: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
+  modalScroll: {
+    maxHeight: 300,
+    paddingHorizontal: 20,
+  },
+  feriadoItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: CONSTANTS.CORES.fundo,
+  },
+  feriadoData: {
+    fontWeight: 'bold',
+    color: CONSTANTS.CORES.primaria,
+  },
+  feriadoNome: {
+    color: '#333',
+    flexShrink: 1,
+    textAlign: 'right',
+  },
+  instrucaoItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: CONSTANTS.CORES.fundo,
+  },
+  instrucaoTexto: {
+    flex: 1,
+    marginLeft: 10,
+    color: '#333',
+    lineHeight: 20,
+  },
+  modalBotao: {
+    backgroundColor: CONSTANTS.CORES.primaria,
+    padding: 15,
+    alignItems: 'center',
+  },
+  modalBotaoTexto: {
+    color: CONSTANTS.CORES.texto,
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });
 
-export default Calendario;
+export default CalendarioPagamentos;
