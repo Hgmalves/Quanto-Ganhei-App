@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "github.com/hgmalves/quanto-ganhei-app",
-    "slug": "snack-7c91b517-3ec8-4310-b866-9016fc85bc5c",
+    "slug": "snack-e7cce20b-7fe5-4ceb-8503-6ba1293f2f84",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -19,7 +19,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "edgeToEdgeEnabled": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
