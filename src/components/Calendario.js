@@ -1,3 +1,14 @@
+/**
+ * Componente principal do calendário de pagamentos para motoristas de caminhão
+ * 
+ * Funcionalidades principais:
+ * - Marcação de dias trabalhados/não trabalhados
+ * - Cálculo automático do salário com base nos dias marcados
+ * - Gestão de feriados nacionais
+ * - Persistência de dados local com AsyncStorage
+ * - Ferramentas de marcação em massa (quinzena, mês inteiro)
+ */
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   View, 
@@ -12,9 +23,11 @@ import {
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Clipboard from 'expo-clipboard'; // Ajustado para usar expo-clipboard
+import * as Clipboard from 'expo-clipboard';
 
-// CONSTANTES - Estilo CNH Digital
+// ... imports das bibliotecas ...
+
+// Configuração de constantes globais
 const ANO_ATUAL = 2025;
 const CONSTANTS = {
   VALOR_DIA_TRABALHADO: 220,
@@ -43,7 +56,7 @@ const CONSTANTS = {
     '2025-06-19': 'Corpus Christi'
   }
 };
-
+// Configuração de localização para o calendário
 LocaleConfig.locales['pt'] = {
   monthNames: ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
   monthNamesShort: ['Jan.', 'Fev.', 'Mar.', 'Abr.', 'Mai.', 'Jun.', 'Jul.', 'Ago.', 'Set.', 'Out.', 'Nov.', 'Dez.'],
@@ -53,6 +66,7 @@ LocaleConfig.locales['pt'] = {
 };
 LocaleConfig.defaultLocale = 'pt';
 
+// Estado principal do componente
 const CalendarioPagamentos = ({ navigation }) => {
   const [state, setState] = useState({
     datasMarcadas: {},
@@ -66,6 +80,7 @@ const CalendarioPagamentos = ({ navigation }) => {
   const mesAtual = hoje.getMonth();
   const diasNoMesAtual = new Date(ANO_ATUAL, mesAtual + 1, 0).getDate();
 
+// Efeito para verificar compatibilidade do ano do dispositivo
   useEffect(() => {
     const anoDispositivo = new Date().getFullYear();
     if (anoDispositivo !== ANO_ATUAL) {
@@ -78,6 +93,7 @@ const CalendarioPagamentos = ({ navigation }) => {
     }
   }, []);
 
+// Efeito para carregar dados salvos ao iniciar
   useEffect(() => {
     const carregarDados = async () => {
       try {
@@ -102,6 +118,8 @@ const CalendarioPagamentos = ({ navigation }) => {
     carregarDados();
   }, []);
 
+// Lógica de toggle entre estados verde/vermelho
+ // Atualização do AsyncStorage e estado local
   const toggleDia = useCallback((dateString) => {
     if (state.anoDispositivoInvalido) {
       Alert.alert('Ajuste necessário', `Altere o ano do dispositivo para ${ANO_ATUAL} para usar o calendário.`);
@@ -160,6 +178,9 @@ const CalendarioPagamentos = ({ navigation }) => {
     });
   }, [state.anoDispositivoInvalido]);
 
+ // Gera todas as datas do mês
+    // Calcula total baseado na cor selecionada
+    // Atualização em massa do AsyncStorage
   const marcarTodos = useCallback((cor) => {
     if (state.anoDispositivoInvalido) {
       Alert.alert('Ajuste necessário', `Altere o ano do dispositivo para ${ANO_ATUAL} para usar esta função.`);
@@ -215,6 +236,61 @@ const CalendarioPagamentos = ({ navigation }) => {
       salarioTotal: cor === CONSTANTS.CORES.verde ? total : 0
     }));
   }, [diasNoMesAtual, mesAtual, state.anoDispositivoInvalido]);
+
+  const marcarQuinzena = useCallback((parte) => {
+    if (state.anoDispositivoInvalido) {
+      Alert.alert('Ajuste necessário', `Altere o ano do dispositivo para ${ANO_ATUAL} para usar esta função.`);
+      return;
+    }
+
+    const inicio = parte === 1 ? 1 : 16;
+    const fim = parte === 1 ? 15 : diasNoMesAtual;
+    const novasMarcacoes = { ...state.datasMarcadas };
+    let totalAdicionado = 0;
+
+    for (let dia = inicio; dia <= fim; dia++) {
+      const date = new Date(ANO_ATUAL, mesAtual, dia);
+      const dateString = date.toISOString().split('T')[0];
+      const isFeriado = CONSTANTS.FERIADOS[dateString];
+
+      if (!novasMarcacoes[dateString] || novasMarcacoes[dateString].selectedColor !== CONSTANTS.CORES.verde) {
+        novasMarcacoes[dateString] = {
+          selected: true,
+          selectedColor: CONSTANTS.CORES.verde,
+          ...(isFeriado && {
+            dotColor: CONSTANTS.CORES.texto,
+            customStyles: {
+              container: {
+                backgroundColor: CONSTANTS.CORES.feriado,
+                borderRadius: 16,
+              },
+              text: {
+                color: CONSTANTS.CORES.texto,
+                fontWeight: 'bold'
+              }
+            }
+          })
+        };
+        totalAdicionado += CONSTANTS.VALOR_DIA_TRABALHADO;
+      }
+    }
+
+    const novoSalario = state.salarioTotal + totalAdicionado;
+
+    AsyncStorage.multiSet([
+      ['@datasMarcadas', JSON.stringify(novasMarcacoes)],
+      ['@salarioTotal', novoSalario.toString()]
+    ]).catch(error => {
+      console.error('Erro ao salvar quinzena:', error);
+      Alert.alert('Erro', 'Não foi possível salvar as marcações da quinzena');
+    });
+
+    setState(prev => ({
+      ...prev,
+      datasMarcadas: novasMarcacoes,
+      salarioTotal: novoSalario
+    }));
+  }, [state.anoDispositivoInvalido, state.datasMarcadas, state.salarioTotal, mesAtual, diasNoMesAtual]);
 
   const limparMarcacoes = useCallback(() => {
     if (state.anoDispositivoInvalido) {
@@ -279,6 +355,7 @@ const CalendarioPagamentos = ({ navigation }) => {
     }
   };
 
+    // Implementação do componente
   const BotaoCNH = ({ icon, label, onPress, danger }) => (
     <TouchableOpacity 
       style={[styles.botaoCNH, danger && { borderColor: CONSTANTS.CORES.vermelho }]}
@@ -304,6 +381,7 @@ const CalendarioPagamentos = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
+  {/* Header com título e botão de ajuda */}
       <StatusBar barStyle="dark-content" backgroundColor={CONSTANTS.CORES.texto} />
       
       <View style={styles.header}>
@@ -319,6 +397,7 @@ const CalendarioPagamentos = ({ navigation }) => {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+      {/* Seção de resumo do salário */}
         <View style={styles.resumoContainer}>
           <Text style={styles.resumoTitulo}>Salário Total</Text>
           <View style={styles.salarioRow}>
@@ -331,14 +410,31 @@ const CalendarioPagamentos = ({ navigation }) => {
             {Object.values(state.datasMarcadas).filter(d => d.selectedColor === CONSTANTS.CORES.verde).length} dias trabalhados
           </Text>
         </View>
-
+        
+        {/* Container de ações rápidas */}
         <View style={styles.acoesContainer}>
+          <TouchableOpacity 
+            style={styles.acaoRapida}
+            onPress={() => marcarQuinzena(1)}
+          >
+            <Icon name="event-available" size={24} color={CONSTANTS.CORES.verde} />
+            <Text style={styles.acaoTexto}>1ª Quinzena</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.acaoRapida}
+            onPress={() => marcarQuinzena(2)}
+          >
+            <Icon name="event-available" size={24} color={CONSTANTS.CORES.verde} />
+            <Text style={styles.acaoTexto}>2ª Quinzena</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity 
             style={styles.acaoRapida}
             onPress={() => marcarTodos(CONSTANTS.CORES.verde)}
           >
             <Icon name="check-circle" size={24} color={CONSTANTS.CORES.verde} />
-            <Text style={styles.acaoTexto}>Marcar Todos</Text>
+            <Text style={styles.acaoTexto}>Mês Inteiro</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -357,7 +453,8 @@ const CalendarioPagamentos = ({ navigation }) => {
             <Text style={styles.acaoTexto}>Limpar Tudo</Text>
           </TouchableOpacity>
         </View>
-
+         
+         {/* Componente de calendário com marcações */}
         <View style={styles.calendarioContainer}>
           <Calendar
             current={`${ANO_ATUAL}-${String(mesAtual + 1).padStart(2, '0')}-01`}
@@ -404,14 +501,13 @@ const CalendarioPagamentos = ({ navigation }) => {
           </View>
         </View>
 
-    
-
         <BotaoCNH
           icon="event"
           label="Ver Feriados Nacionais"
           onPress={() => setState(prev => ({ ...prev, modalVisivel: true }))}
         />
 
+{/* Modal de feriados nacionais */}
         <Modal
           visible={state.modalVisivel}
           transparent
@@ -442,7 +538,7 @@ const CalendarioPagamentos = ({ navigation }) => {
             </View>
           </View>
         </Modal>
-
+ {/* Modal de instruções de uso */}
         <Modal
           visible={state.modalAjudaVisivel}
           transparent
@@ -468,9 +564,16 @@ const CalendarioPagamentos = ({ navigation }) => {
                 </View>
                 
                 <View style={styles.instrucaoItem}>
+                  <Icon name="event-available" size={24} color={CONSTANTS.CORES.verde} />
+                  <Text style={styles.instrucaoTexto}>
+                    <Text style={{fontWeight: 'bold'}}>Quinzena:</Text> Marca automaticamente a primeira (1-15) ou segunda (16 até final do mês) quinzena.
+                  </Text>
+                </View>
+                
+                <View style={styles.instrucaoItem}>
                   <Icon name="check-circle" size={24} color={CONSTANTS.CORES.verde} />
                   <Text style={styles.instrucaoTexto}>
-                    <Text style={{fontWeight: 'bold'}}>Marcar Todos:</Text> Marca todos os dias do mês atual como trabalhados.
+                    <Text style={{fontWeight: 'bold'}}>Mês Inteiro:</Text> Marca todos os dias do mês atual como trabalhados.
                   </Text>
                 </View>
                 
@@ -523,6 +626,7 @@ const CalendarioPagamentos = ({ navigation }) => {
   );
 };
 
+// Estilos organizados por seções do componente
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -587,17 +691,21 @@ const styles = StyleSheet.create({
   acoesContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    flexWrap: 'wrap',
     marginHorizontal: 15,
     marginBottom: 15,
   },
   acaoRapida: {
     alignItems: 'center',
     padding: 10,
+    minWidth: '30%',
+    marginVertical: 5,
   },
   acaoTexto: {
     marginTop: 5,
     fontSize: 12,
     color: '#333',
+    textAlign: 'center',
   },
   calendarioContainer: {
     marginHorizontal: 15,
