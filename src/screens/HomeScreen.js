@@ -51,7 +51,7 @@ const HomeScreen = ({ navigation }) => {
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>Versão 1.0</Text>
-        <Text style={styles.footerText}>Sistema não vinculado aos órgãos oficiais</Text>
+        <Text style={styles.footerText}>Uso exclusivo do CNPJ 57.000.169/0001-69 </Text>
       </View>
     </View>
   );
